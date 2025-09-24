@@ -2,7 +2,7 @@
 # dependencies = [
 #   "torch>=2.0.0",
 #   "torchvision>=0.15.0",
-#   "diffusers>=0.35.0",
+#   "diffusers @ git+https://github.com/huggingface/diffusers",
 #   "transformers>=4.35.0",
 #   "accelerate>=0.25.0",
 #   "safetensors>=0.4.0",
@@ -48,11 +48,21 @@ def import_from_url(url, module_name):
 
 
 if __name__ == "__main__":
-    # Import cli.py locally to test new features
     import sys
 
-    sys.path.insert(0, "src")
-    from qwen_image_mps import cli
+    repo_root = os.path.dirname(os.path.abspath(__file__))
+    src_path = os.path.join(repo_root, "src")
+    if os.path.isdir(src_path) and src_path not in sys.path:
+        sys.path.insert(0, src_path)
 
-    # Run the main function
-    cli.main()
+    try:
+        from qwen_image_mps import cli as cli_module
+    except ModuleNotFoundError:
+        default_cli_url = (
+            "https://raw.githubusercontent.com/ivanfioravanti/qwen-image-mps/"
+            "main/src/qwen_image_mps/cli.py"
+        )
+        cli_url = os.environ.get("QWEN_IMAGE_MPS_CLI_URL", default_cli_url)
+        cli_module = import_from_url(cli_url, "qwen_image_mps_cli")
+
+    cli_module.main()

@@ -154,8 +154,12 @@ def get_lora_path(ultra_fast=False, edit_mode=False):
     - Return the final resolved local path.
     """
 
-    if edit_mode:
-        # Use the new Edit Lightning LoRA for editing
+    if edit_mode and ultra_fast:
+        # Use the ultra-fast Lightning LoRA for editing
+        filename = "Qwen-Image-Edit-Lightning-4steps-V1.0-bf16.safetensors"
+        version = "Edit v1.0 (4-steps)"
+    elif edit_mode:
+        # Use the Lightning LoRA for standard fast editing
         filename = "Qwen-Image-Edit-Lightning-8steps-V1.0-bf16.safetensors"
         version = "Edit v1.0 (8-steps)"
     elif ultra_fast:
@@ -494,20 +498,20 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
         "-s",
         "--steps",
         type=int,
-        default=50,
+        default=40,
         help="Number of inference steps for normal editing.",
     )
     parser.add_argument(
         "-f",
         "--fast",
         action="store_true",
-        help="Use Lightning LoRA v1.1 for fast editing (8 steps).",
+        help="Use Lightning LoRA for fast editing (8 steps).",
     )
     parser.add_argument(
         "-uf",
         "--ultra-fast",
         action="store_true",
-        help="Use Lightning LoRA v1.0 for ultra-fast editing (4 steps).",
+        help="Use Lightning LoRA for ultra-fast editing (4 steps).",
     )
     parser.add_argument(
         "--seed",
@@ -901,16 +905,6 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
 
             print("Creating pipeline with quantized transformer...")
 
-            # Always use standard text encoder; GGUF TE unsupported
-            #
-            # Rationale (preserved for future work):
-            # - The available Qwen2.5-VL-7B GGUF files are full VLMs not yet pluggable
-            #   as text encoders in diffusers.
-            # - Loading GGUF TE via transformers.from_pretrained with a local .gguf path
-            #   is not supported and yields repo-id errors.
-            # - ComfyUI-GGUF demonstrates feasibility with custom ops/patchers; if
-            #   diffusers gains similar capabilities, we can revisit enabling GGUF TE
-            #   for additional memory savings (~4–8 GB vs 16.6 GB FP).
             pipeline = DiffusionPipeline.from_pretrained(
                 "Qwen/Qwen-Image",
                 transformer=transformer,
@@ -970,8 +964,6 @@ def load_quantized_text_encoder(quantization: str, device, torch_dtype):
     Returns:
         Quantized text encoder or None
     """
-    # For now, we'll use transformers' built-in quantization
-    # Future: Could implement GGUF loading when proper text encoder GGUF files are available
 
     try:
         import torch
@@ -995,8 +987,6 @@ def load_quantized_text_encoder(quantization: str, device, torch_dtype):
             return None
 
         print(f"Loading text encoder with {quantization} quantization...")
-        # Note: This would need the actual text encoder model path
-        # For now, return None as we need proper implementation
         return None
 
     except ImportError:
@@ -1025,7 +1015,7 @@ def get_text_encoder_gguf_path(quantization: str):
     # Using unsloth repository with correct case-sensitive filenames
     gguf_files = {
         "Q2_K": "Qwen2.5-VL-7B-Instruct-Q2_K.gguf",
-        "Q3_K_S": "Qwen2.5-VL-7B-Instruct-Q3_K_S.gguf", 
+        "Q3_K_S": "Qwen2.5-VL-7B-Instruct-Q3_K_S.gguf",
         "Q3_K_M": "Qwen2.5-VL-7B-Instruct-Q3_K_M.gguf",
         "Q4_0": "Qwen2.5-VL-7B-Instruct-Q4_0.gguf",
         "Q4_1": "Qwen2.5-VL-7B-Instruct-Q4_1.gguf",
@@ -1061,14 +1051,12 @@ def get_text_encoder_gguf_path(quantization: str):
 
 class QwenTextEncoderGGUF:
     """Custom text encoder that loads from GGUF files.
-    
     This class provides a wrapper around the Qwen2.5-VL model loaded from GGUF
     to be used as a text encoder in diffusion pipelines.
     """
-    
+
     def __init__(self, gguf_path: str, device, torch_dtype):
         """Initialize the GGUF text encoder.
-        
         Args:
             gguf_path: Path to the GGUF file
             device: Device to load on
@@ -1088,7 +1076,18 @@ class QwenTextEncoderGGUF:
             import torch
             
             print(f"Loading GGUF text encoder from {self.gguf_path}...")
-            
+
+        # Load the model using transformers
+        self._load_model()
+
+    def _load_model(self):
+        """Load the GGUF model using transformers."""
+        try:
+            import torch
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+
+            print(f"Loading GGUF text encoder from {self.gguf_path}...")
+
             # Load the model and tokenizer
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.gguf_path,
@@ -1125,29 +1124,29 @@ class QwenTextEncoderGGUF:
         try:
             # Tokenize the input text
             inputs = self.tokenizer(
-                text, 
-                return_tensors=return_tensors, 
-                padding=True, 
+                text,
+                return_tensors=return_tensors,
+                padding=True,
                 truncation=True,
-                max_length=512  # Reasonable limit for text encoder
+                max_length=512,  # Reasonable limit for text encoder
             )
-            
+
             # Move to device
             inputs = {k: v.to(self.device) for k, v in inputs.items()}
-            
+
             # Get embeddings from the model
             import torch
+
             with torch.no_grad():
                 outputs = self.model(**inputs, output_hidden_states=True)
                 # Use the last hidden state as embeddings
                 embeddings = outputs.hidden_states[-1]
-            
             return embeddings
-            
+
         except Exception as e:
             print(f"Error encoding text: {e}")
             raise
-    
+
     def __call__(self, text, return_tensors="pt"):
         """Make the encoder callable."""
         return self.encode(text, return_tensors)
@@ -1155,12 +1154,12 @@ class QwenTextEncoderGGUF:
 
 def load_gguf_text_encoder(quantization: str, device, torch_dtype):
     """Load a GGUF quantized text encoder.
-    
+
     Args:
         quantization: Quantization level (e.g., 'Q4_0')
         device: Device to load on
         torch_dtype: Data type for computation
-        
+
     Returns:
         QwenTextEncoderGGUF instance or None if failed
     """
@@ -1169,11 +1168,11 @@ def load_gguf_text_encoder(quantization: str, device, torch_dtype):
         gguf_path = get_text_encoder_gguf_path(quantization)
         if not gguf_path:
             return None
-        
+
         # Create the custom text encoder
         text_encoder = QwenTextEncoderGGUF(gguf_path, device, torch_dtype)
         return text_encoder
-        
+
     except Exception as e:
         print(f"Error loading GGUF text encoder: {e}")
         return None
@@ -1230,7 +1229,7 @@ def get_total_memory_estimate(quantization: str):
     """
     transformer_str = get_model_size(quantization)
     text_encoder_str = get_text_encoder_size(quantization)
-    
+
     if transformer_str == "Unknown":
         return None
 
@@ -1379,7 +1378,7 @@ def generate_image(args):
                 cfg_scale = 1.0
             else:
                 yield emit_event(GenerationStep.LOADING_FAST_LORA)
-                print("Loading Lightning LoRA v1.1 for fast generation...")
+                print("Loading Lightning LoRA for fast generation...")
                 lora_path = get_lora_path(ultra_fast=False)
                 if lora_path:
                     pipe = merge_lora_from_safetensors(pipe, lora_path)
@@ -1572,8 +1571,8 @@ def edit_image(args) -> None:
 
     # Apply Lightning LoRA if fast or ultra-fast mode is enabled
     if args.ultra_fast:
-        print("Loading Lightning LoRA v1.0 for ultra-fast editing...")
-        lora_path = get_lora_path(ultra_fast=True)
+        print("Loading Lightning Edit LoRA v1.0 (4 steps) for ultra-fast editing...")
+        lora_path = get_lora_path(ultra_fast=True, edit_mode=True)
         if lora_path:
             # Use manual LoRA merging for edit pipeline
             pipeline = merge_lora_from_safetensors(pipeline, lora_path)
@@ -1582,7 +1581,7 @@ def edit_image(args) -> None:
             cfg_scale = 1.0
             print(f"Ultra-fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
         else:
-            print("Warning: Could not load Lightning LoRA v1.0")
+            print("Warning: Could not load Lightning Edit LoRA v1.0 (4 steps)")
             print("Falling back to normal editing...")
             num_steps = args.steps
             cfg_scale = 4.0
