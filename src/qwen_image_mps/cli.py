@@ -690,6 +690,53 @@ def get_edit_gguf_model_path(quantization: str):
         return None
 
 
+def get_edit_gguf_model_path_QuantStack(quantization: str):
+    """Download and return path to GGUF quantized model for image editing.
+
+    Args:
+        quantization: Quantization level (e.g., 'Q4_0', 'Q8_0')
+
+    Returns:
+        Path to the downloaded GGUF file
+    """
+    from huggingface_hub import hf_hub_download
+
+    # Map quantization levels to filenames from QuantStack/Qwen-Image-Edit-2509-GGUF
+    gguf_files = {
+        "Q2_K":   "Qwen-Image-Edit-2509-Q2_K.gguf",
+        "Q3_K_M": "Qwen-Image-Edit-2509-Q3_K_M.gguf",
+        "Q3_K_S": "Qwen-Image-Edit-2509-Q3_K_S.gguf",
+        "Q4_0":   "Qwen-Image-Edit-2509-Q4_0.gguf",
+        "Q4_1":   "Qwen-Image-Edit-2509-Q4_1.gguf",
+        "Q4_K_M": "Qwen-Image-Edit-2509-Q4_K_M.gguf",
+        "Q4_K_S": "Qwen-Image-Edit-2509-Q4_K_S.gguf",
+        "Q5_0":   "Qwen-Image-Edit-2509-Q5_0.gguf",
+        "Q5_1":   "Qwen-Image-Edit-2509-Q5_1.gguf",
+        "Q5_K_M": "Qwen-Image-Edit-2509-Q5_K_M.gguf",
+        "Q5_K_S": "Qwen-Image-Edit-2509-Q5_K_S.gguf",
+        "Q6_K":   "Qwen-Image-Edit-2509-Q6_K.gguf",
+        "Q8_0":   "Qwen-Image-Edit-2509-Q8_0.gguf",
+    }
+
+    if quantization not in gguf_files:
+        raise ValueError(f"Unsupported edit quantization level: {quantization}")
+
+    filename = gguf_files[quantization]
+    print(f"Downloading GGUF edit model with {quantization} quantization...")
+
+    try:
+        gguf_path = hf_hub_download(
+            repo_id="QuantStack/Qwen-Image-Edit-2509-GGUF",
+            filename=filename,
+            repo_type="model",
+        )
+        print(f"GGUF edit model downloaded: {gguf_path}")
+        return gguf_path
+    except Exception as e:
+        print(f"Failed to download GGUF edit model: {e}")
+        return None
+
+
 def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
     """Load a GGUF quantized model pipeline.
 
@@ -728,7 +775,8 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
 
     if edit_mode:
         # Load GGUF model for editing from calcuis/qwen-image-edit-plus-gguf
-        gguf_path = get_edit_gguf_model_path(quantization)
+        # gguf_path = get_edit_gguf_model_path(quantization)
+        gguf_path = get_edit_gguf_model_path_QuantStack(quantization)
         if not gguf_path:
             return None
 
