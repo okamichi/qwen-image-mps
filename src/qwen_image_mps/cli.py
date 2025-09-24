@@ -1072,17 +1072,6 @@ class QwenTextEncoderGGUF:
     def _load_model(self):
         """Load the GGUF model using transformers."""
         try:
-            from transformers import AutoModelForCausalLM, AutoTokenizer
-            import torch
-            
-            print(f"Loading GGUF text encoder from {self.gguf_path}...")
-
-        # Load the model using transformers
-        self._load_model()
-
-    def _load_model(self):
-        """Load the GGUF model using transformers."""
-        try:
             import torch
             from transformers import AutoModelForCausalLM, AutoTokenizer
 
