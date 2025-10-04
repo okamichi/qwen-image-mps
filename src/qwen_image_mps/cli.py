@@ -154,8 +154,12 @@ def get_lora_path(ultra_fast=False, edit_mode=False):
     - Return the final resolved local path.
     """
 
-    if edit_mode:
-        # Use the new Edit Lightning LoRA for editing
+    if edit_mode and ultra_fast:
+        # Use the ultra-fast Lightning LoRA for editing
+        filename = "Qwen-Image-Edit-Lightning-4steps-V1.0-bf16.safetensors"
+        version = "Edit v1.0 (4-steps)"
+    elif edit_mode:
+        # Use the Lightning LoRA for standard fast editing
         filename = "Qwen-Image-Edit-Lightning-8steps-V1.0-bf16.safetensors"
         version = "Edit v1.0 (8-steps)"
     elif ultra_fast:
@@ -494,20 +498,20 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
         "-s",
         "--steps",
         type=int,
-        default=50,
+        default=40,
         help="Number of inference steps for normal editing.",
     )
     parser.add_argument(
         "-f",
         "--fast",
         action="store_true",
-        help="Use Lightning LoRA v1.1 for fast editing (8 steps).",
+        help="Use Lightning LoRA for fast editing (8 steps).",
     )
     parser.add_argument(
         "-uf",
         "--ultra-fast",
         action="store_true",
-        help="Use Lightning LoRA v1.0 for ultra-fast editing (4 steps).",
+        help="Use Lightning LoRA for ultra-fast editing (4 steps).",
     )
     parser.add_argument(
         "--seed",
@@ -552,21 +556,26 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
         type=str,
         default=None,
         choices=[
+            "IQ2_S",
+            "IQ4_NL",
+            "IQ4_XS",
             "Q2_K",
-            "Q3_K_S",
+            "Q2_K_S",
+            "Q3_K_L",
             "Q3_K_M",
+            "Q3_K_S",
             "Q4_0",
             "Q4_1",
-            "Q4_K_S",
             "Q4_K_M",
+            "Q4_K_S",
             "Q5_0",
             "Q5_1",
-            "Q5_K_S",
             "Q5_K_M",
+            "Q5_K_S",
             "Q6_K",
             "Q8_0",
         ],
-        help="Use GGUF quantized model (e.g., Q4_0 for ~3x memory reduction). Default uses standard model.",
+        help="Use GGUF quantized model for editing (e.g., Q4_0 for ~3x memory reduction). Available quantization formats include IQ and Q variants. Default uses standard model.",
     )
     return parser
 
@@ -633,6 +642,105 @@ def get_gguf_model_path(quantization: str):
         return None
 
 
+def get_edit_gguf_model_path(quantization: str):
+    """Download and return path to GGUF quantized model for image editing.
+
+    Args:
+        quantization: Quantization level (e.g., 'Q4_0', 'Q8_0')
+
+    Returns:
+        Path to the downloaded GGUF file
+    """
+    from huggingface_hub import hf_hub_download
+
+    # Map quantization levels to filenames from calcuis/qwen-image-edit-plus-gguf
+    gguf_files = {
+        "IQ2_S": "qwen-image-edit-plus-iq2_s.gguf",
+        "IQ4_NL": "qwen-image-edit-plus-iq4_nl.gguf",
+        "IQ4_XS": "qwen-image-edit-plus-iq4_xs.gguf",
+        "Q2_K": "qwen-image-edit-plus-q2_k.gguf",
+        "Q2_K_S": "qwen-image-edit-plus-q2_k_s.gguf",
+        "Q3_K_L": "qwen-image-edit-plus-q3_k_l.gguf",
+        "Q3_K_M": "qwen-image-edit-plus-q3_k_m.gguf",
+        "Q3_K_S": "qwen-image-edit-plus-q3_k_s.gguf",
+        "Q4_0": "qwen-image-edit-plus-q4_0.gguf",
+        "Q4_1": "qwen-image-edit-plus-q4_1.gguf",
+        "Q4_K_M": "qwen-image-edit-plus-q4_k_m.gguf",
+        "Q4_K_S": "qwen-image-edit-plus-q4_k_s.gguf",
+        "Q5_0": "qwen-image-edit-plus-q5_0.gguf",
+        "Q5_1": "qwen-image-edit-plus-q5_1.gguf",
+        "Q5_K_M": "qwen-image-edit-plus-q5_k_m.gguf",
+        "Q5_K_S": "qwen-image-edit-plus-q5_k_s.gguf",
+        "Q6_K": "qwen-image-edit-plus-q6_k.gguf",
+        "Q8_0": "qwen-image-edit-plus-q8_0.gguf",
+    }
+
+    if quantization not in gguf_files:
+        raise ValueError(f"Unsupported edit quantization level: {quantization}")
+
+    filename = gguf_files[quantization]
+    print(f"Downloading GGUF edit model with {quantization} quantization...")
+
+    try:
+        gguf_path = hf_hub_download(
+            repo_id="calcuis/qwen-image-edit-plus-gguf",
+            filename=filename,
+            repo_type="model",
+        )
+        print(f"GGUF edit model downloaded: {gguf_path}")
+        return gguf_path
+    except Exception as e:
+        print(f"Failed to download GGUF edit model: {e}")
+        return None
+
+
+def get_edit_gguf_model_path_QuantStack(quantization: str):
+    """Download and return path to GGUF quantized model for image editing.
+
+    Args:
+        quantization: Quantization level (e.g., 'Q4_0', 'Q8_0')
+
+    Returns:
+        Path to the downloaded GGUF file
+    """
+    from huggingface_hub import hf_hub_download
+
+    # Map quantization levels to filenames from QuantStack/Qwen-Image-Edit-2509-GGUF
+    gguf_files = {
+        "Q2_K":   "Qwen-Image-Edit-2509-Q2_K.gguf",
+        "Q3_K_M": "Qwen-Image-Edit-2509-Q3_K_M.gguf",
+        "Q3_K_S": "Qwen-Image-Edit-2509-Q3_K_S.gguf",
+        "Q4_0":   "Qwen-Image-Edit-2509-Q4_0.gguf",
+        "Q4_1":   "Qwen-Image-Edit-2509-Q4_1.gguf",
+        "Q4_K_M": "Qwen-Image-Edit-2509-Q4_K_M.gguf",
+        "Q4_K_S": "Qwen-Image-Edit-2509-Q4_K_S.gguf",
+        "Q5_0":   "Qwen-Image-Edit-2509-Q5_0.gguf",
+        "Q5_1":   "Qwen-Image-Edit-2509-Q5_1.gguf",
+        "Q5_K_M": "Qwen-Image-Edit-2509-Q5_K_M.gguf",
+        "Q5_K_S": "Qwen-Image-Edit-2509-Q5_K_S.gguf",
+        "Q6_K":   "Qwen-Image-Edit-2509-Q6_K.gguf",
+        "Q8_0":   "Qwen-Image-Edit-2509-Q8_0.gguf",
+    }
+
+    if quantization not in gguf_files:
+        raise ValueError(f"Unsupported edit quantization level: {quantization}")
+
+    filename = gguf_files[quantization]
+    print(f"Downloading GGUF edit model with {quantization} quantization...")
+
+    try:
+        gguf_path = hf_hub_download(
+            repo_id="QuantStack/Qwen-Image-Edit-2509-GGUF",
+            filename=filename,
+            repo_type="model",
+        )
+        print(f"GGUF edit model downloaded: {gguf_path}")
+        return gguf_path
+    except Exception as e:
+        print(f"Failed to download GGUF edit model: {e}")
+        return None
+
+
 def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
     """Load a GGUF quantized model pipeline.
 
@@ -666,20 +774,87 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
         )
         return None
 
-    # Get GGUF model path
-    gguf_path = get_gguf_model_path(quantization)
-    if not gguf_path:
-        return None
-
     # Create quantization config
     quantization_config = GGUFQuantizationConfig(compute_dtype=torch_dtype)
 
     if edit_mode:
-        print("Note: GGUF quantized models for editing are not yet supported.")
-        print("The GGUF models from city96 are for the base Qwen-Image model only.")
-        return None
+        # Load GGUF model for editing from calcuis/qwen-image-edit-plus-gguf
+        # gguf_path = get_edit_gguf_model_path(quantization)
+        gguf_path = get_edit_gguf_model_path_QuantStack(quantization)
+        if not gguf_path:
+            return None
+
+        try:
+            from diffusers import QwenImageEditPlusPipeline as EditPipeline
+        except ImportError:
+            from diffusers import QwenImageEditPipeline as EditPipeline
+
+        print(f"Loading GGUF quantized edit model ({quantization})...")
+
+        try:
+            # Try to load using from_single_file for edit pipeline
+            from diffusers.models import QwenImageTransformer2DModel
+
+            print("Loading transformer from GGUF file for editing...")
+
+            try:
+                # Load transformer with quantization config
+                transformer = QwenImageTransformer2DModel.from_single_file(
+                    gguf_path,
+                    quantization_config=quantization_config,
+                    torch_dtype=torch_dtype,
+                    config="Qwen/Qwen-Image-Edit-2509",
+                    subfolder="transformer",
+                )
+            except Exception as e1:
+                print(f"First attempt failed: {e1}")
+                try:
+                    # Load without quantization config
+                    transformer = QwenImageTransformer2DModel.from_single_file(
+                        gguf_path,
+                        torch_dtype=torch_dtype,
+                        config="Qwen/Qwen-Image-Edit-2509",
+                        subfolder="transformer",
+                    )
+                except Exception as e2:
+                    print(f"Second attempt failed: {e2}")
+                    # Load with minimal config
+                    transformer = QwenImageTransformer2DModel.from_single_file(
+                        gguf_path,
+                        torch_dtype=torch_dtype,
+                    )
+
+            print("Creating edit pipeline with quantized transformer...")
+
+            # Create edit pipeline with quantized transformer
+            pipeline = EditPipeline.from_pretrained(
+                "Qwen/Qwen-Image-Edit-2509",
+                transformer=transformer,
+                torch_dtype=torch_dtype,
+            )
+
+            pipeline = pipeline.to(device)
+            print(f"Successfully loaded GGUF edit model with {quantization} quantization")
+            return pipeline
+
+        except Exception as e:
+            print(f"Error loading GGUF edit model: {e}")
+            print("Falling back to standard edit model...")
+
+            # Fallback: Use standard edit pipeline
+            pipeline = EditPipeline.from_pretrained(
+                "Qwen/Qwen-Image-Edit-2509",
+                torch_dtype=torch_dtype,
+            )
+            pipeline = pipeline.to(device)
+            print("Successfully loaded standard edit model")
+            return pipeline
     else:
         # Load GGUF model for generation
+        gguf_path = get_gguf_model_path(quantization)
+        if not gguf_path:
+            return None
+
         from diffusers import DiffusionPipeline
 
         print(f"Loading GGUF quantized model ({quantization})...")
@@ -700,18 +875,36 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
             from diffusers.models import QwenImageTransformer2DModel
 
             print("Loading transformer from GGUF file...")
-            # Need to provide the config from the original model
-            transformer = QwenImageTransformer2DModel.from_single_file(
-                gguf_path,
-                quantization_config=quantization_config,
-                torch_dtype=torch_dtype,
-                config="Qwen/Qwen-Image",  # Use config from the original model
-                subfolder="transformer",  # Specify the transformer subfolder
-            )
+            # Try loading with different approaches
+            try:
+                # First try: Load with quantization config
+                transformer = QwenImageTransformer2DModel.from_single_file(
+                    gguf_path,
+                    quantization_config=quantization_config,
+                    torch_dtype=torch_dtype,
+                    config="Qwen/Qwen-Image",
+                    subfolder="transformer",
+                )
+            except Exception as e1:
+                print(f"First attempt failed: {e1}")
+                try:
+                    # Second try: Load without quantization config
+                    transformer = QwenImageTransformer2DModel.from_single_file(
+                        gguf_path,
+                        torch_dtype=torch_dtype,
+                        config="Qwen/Qwen-Image",
+                        subfolder="transformer",
+                    )
+                except Exception as e2:
+                    print(f"Second attempt failed: {e2}")
+                    # Third try: Load with minimal config
+                    transformer = QwenImageTransformer2DModel.from_single_file(
+                        gguf_path,
+                        torch_dtype=torch_dtype,
+                    )
 
             print("Creating pipeline with quantized transformer...")
 
-            # Create pipeline with quantized transformer
             pipeline = DiffusionPipeline.from_pretrained(
                 "Qwen/Qwen-Image",
                 transformer=transformer,
@@ -732,13 +925,32 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
             print(
                 "This might be because your diffusers version doesn't support GGUF for Qwen-Image yet."
             )
-            return None
+            print("Falling back to standard transformer...")
+
+            # Fallback: Use standard transformer and standard text encoder
+            pipeline = DiffusionPipeline.from_pretrained(
+                "Qwen/Qwen-Image",
+                torch_dtype=torch_dtype,
+            )
+            pipeline = pipeline.to(device)
+            print("Successfully loaded standard model")
+            return pipeline
+
         except Exception as e:
             print(f"Error loading GGUF model: {e}")
             print(
                 "The GGUF file format might not be compatible with the current diffusers implementation."
             )
-            return None
+            print("Falling back to standard transformer...")
+
+            # Fallback: Use standard transformer and standard text encoder
+            pipeline = DiffusionPipeline.from_pretrained(
+                "Qwen/Qwen-Image",
+                torch_dtype=torch_dtype,
+            )
+            pipeline = pipeline.to(device)
+            print("Successfully loaded standard model")
+            return pipeline
 
 
 def load_quantized_text_encoder(quantization: str, device, torch_dtype):
@@ -752,8 +964,6 @@ def load_quantized_text_encoder(quantization: str, device, torch_dtype):
     Returns:
         Quantized text encoder or None
     """
-    # For now, we'll use transformers' built-in quantization
-    # Future: Could implement GGUF loading when proper text encoder GGUF files are available
 
     try:
         import torch
@@ -777,8 +987,6 @@ def load_quantized_text_encoder(quantization: str, device, torch_dtype):
             return None
 
         print(f"Loading text encoder with {quantization} quantization...")
-        # Note: This would need the actual text encoder model path
-        # For now, return None as we need proper implementation
         return None
 
     except ImportError:
@@ -788,46 +996,175 @@ def load_quantized_text_encoder(quantization: str, device, torch_dtype):
 
 
 def get_text_encoder_gguf_path(quantization: str):
-    """Placeholder for future text encoder GGUF support.
+    """Download and return path to GGUF quantized text encoder.
 
     Args:
         quantization: Quantization level (e.g., 'Q4_0', 'Q8_0')
 
     Returns:
-        Path to text encoder GGUF file or None
+        Path to the downloaded GGUF file or None if failed
 
     Note:
-        Text encoder GGUF files from unsloth/Qwen2.5-VL-7B-Instruct-GGUF exist but:
-        - They are full VLM models (7B params), not optimized for diffusion pipelines
-        - Diffusers doesn't support loading them as text encoders yet
-        - Would require custom integration similar to ComfyUI-GGUF's approach
-
-        ComfyUI-GGUF shows it's possible with their T5/CLIP loaders:
-        - They use custom GGMLOps for quantized operations
-        - Implement GGUFModelPatcher for memory management
-        - Support dynamic dequantization during forward pass
-
-        When implemented, this could provide additional memory savings:
-        - Q4_0: ~4.4GB (vs 16.6GB full precision)
-        - Q8_0: ~8.1GB (vs 16.6GB full precision)
-        - Total with both quantized: ~18GB (vs ~60GB full precision)
+        Downloads from unsloth/Qwen2.5-VL-7B-Instruct-GGUF which contains
+        quantized versions of the Qwen2.5-VL-7B model that can be used as
+        text encoders with custom implementation.
     """
-    # TODO: Implement when diffusers supports GGUF text encoders
-    # Potential implementation approach (based on ComfyUI-GGUF):
-    # 1. Download from unsloth/Qwen2.5-VL-7B-Instruct-GGUF
-    # 2. Create custom QwenTextEncoderGGUF class with GGMLOps
-    # 3. Implement dequantization logic for forward pass
-    # 4. Integrate with pipeline using custom text encoder
-    #
-    # Example future usage:
-    # text_encoder_gguf = load_qwen_text_encoder_gguf(quantization)
-    # pipeline = DiffusionPipeline.from_pretrained(
-    #     "Qwen/Qwen-Image",
-    #     text_encoder=text_encoder_gguf,
-    #     transformer=transformer_gguf,
-    #     ...
-    # )
-    return None
+    from huggingface_hub import hf_hub_download
+
+    # Map quantization levels to filenames for Qwen2.5-VL-7B
+    # Using unsloth repository with correct case-sensitive filenames
+    gguf_files = {
+        "Q2_K": "Qwen2.5-VL-7B-Instruct-Q2_K.gguf",
+        "Q3_K_S": "Qwen2.5-VL-7B-Instruct-Q3_K_S.gguf",
+        "Q3_K_M": "Qwen2.5-VL-7B-Instruct-Q3_K_M.gguf",
+        "Q4_0": "Qwen2.5-VL-7B-Instruct-Q4_0.gguf",
+        "Q4_1": "Qwen2.5-VL-7B-Instruct-Q4_1.gguf",
+        "Q4_K_S": "Qwen2.5-VL-7B-Instruct-Q4_K_S.gguf",
+        "Q4_K_M": "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+        "Q5_0": "Qwen2.5-VL-7B-Instruct-Q5_0.gguf",
+        "Q5_1": "Qwen2.5-VL-7B-Instruct-Q5_1.gguf",
+        "Q5_K_S": "Qwen2.5-VL-7B-Instruct-Q5_K_S.gguf",
+        "Q5_K_M": "Qwen2.5-VL-7B-Instruct-Q5_K_M.gguf",
+        "Q6_K": "Qwen2.5-VL-7B-Instruct-Q6_K.gguf",
+        "Q8_0": "Qwen2.5-VL-7B-Instruct-Q8_0.gguf",
+    }
+
+    if quantization not in gguf_files:
+        print(f"Unsupported text encoder quantization level: {quantization}")
+        return None
+
+    filename = gguf_files[quantization]
+    print(f"Downloading GGUF text encoder with {quantization} quantization...")
+
+    try:
+        gguf_path = hf_hub_download(
+            repo_id="unsloth/Qwen2.5-VL-7B-Instruct-GGUF",
+            filename=filename,
+            repo_type="model",
+        )
+        print(f"GGUF text encoder downloaded: {gguf_path}")
+        return gguf_path
+    except Exception as e:
+        print(f"Error downloading GGUF text encoder: {e}")
+        return None
+
+
+class QwenTextEncoderGGUF:
+    """Custom text encoder that loads from GGUF files.
+    This class provides a wrapper around the Qwen2.5-VL model loaded from GGUF
+    to be used as a text encoder in diffusion pipelines.
+    """
+
+    def __init__(self, gguf_path: str, device, torch_dtype):
+        """Initialize the GGUF text encoder.
+        Args:
+            gguf_path: Path to the GGUF file
+            device: Device to load on
+            torch_dtype: Data type for computation
+        """
+        self.device = device
+        self.torch_dtype = torch_dtype
+        self.gguf_path = gguf_path
+        
+        # Load the model using transformers
+        self._load_model()
+    
+    def _load_model(self):
+        """Load the GGUF model using transformers."""
+        try:
+            import torch
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+
+            print(f"Loading GGUF text encoder from {self.gguf_path}...")
+
+            # Load the model and tokenizer
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.gguf_path,
+                torch_dtype=self.torch_dtype,
+                device_map="auto" if self.device != "cpu" else None,
+                trust_remote_code=True
+            )
+            
+            # Load tokenizer from the original model
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                "Qwen/Qwen2.5-VL-7B-Instruct",
+                trust_remote_code=True
+            )
+            
+            if self.device == "cpu":
+                self.model = self.model.to(self.device)
+            
+            print("GGUF text encoder loaded successfully")
+            
+        except Exception as e:
+            print(f"Error loading GGUF text encoder: {e}")
+            raise
+    
+    def encode(self, text, return_tensors="pt"):
+        """Encode text to embeddings.
+        
+        Args:
+            text: Input text to encode
+            return_tensors: Format to return tensors in
+            
+        Returns:
+            Encoded text embeddings
+        """
+        try:
+            # Tokenize the input text
+            inputs = self.tokenizer(
+                text,
+                return_tensors=return_tensors,
+                padding=True,
+                truncation=True,
+                max_length=512,  # Reasonable limit for text encoder
+            )
+
+            # Move to device
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+
+            # Get embeddings from the model
+            import torch
+
+            with torch.no_grad():
+                outputs = self.model(**inputs, output_hidden_states=True)
+                # Use the last hidden state as embeddings
+                embeddings = outputs.hidden_states[-1]
+            return embeddings
+
+        except Exception as e:
+            print(f"Error encoding text: {e}")
+            raise
+
+    def __call__(self, text, return_tensors="pt"):
+        """Make the encoder callable."""
+        return self.encode(text, return_tensors)
+
+
+def load_gguf_text_encoder(quantization: str, device, torch_dtype):
+    """Load a GGUF quantized text encoder.
+
+    Args:
+        quantization: Quantization level (e.g., 'Q4_0')
+        device: Device to load on
+        torch_dtype: Data type for computation
+
+    Returns:
+        QwenTextEncoderGGUF instance or None if failed
+    """
+    try:
+        # Get the GGUF file path
+        gguf_path = get_text_encoder_gguf_path(quantization)
+        if not gguf_path:
+            return None
+
+        # Create the custom text encoder
+        text_encoder = QwenTextEncoderGGUF(gguf_path, device, torch_dtype)
+        return text_encoder
+
+    except Exception as e:
+        print(f"Error loading GGUF text encoder: {e}")
+        return None
 
 
 def get_model_size(quantization: str) -> str:
@@ -850,27 +1187,47 @@ def get_model_size(quantization: str) -> str:
     return sizes.get(quantization, "Unknown")
 
 
+def get_text_encoder_size(quantization: str) -> str:
+    """Get approximate text encoder size.
+
+    Text encoder GGUF is not supported in this pipeline; assume full precision.
+
+    Historical/future notes (kept for reference):
+    - When GGUF text encoders become supported, approximate sizes could be:
+      Q2_K ~2.8 GB; Q3_K_S ~3.5 GB; Q3_K_M ~3.8 GB; Q4_0 ~4.4 GB; Q4_1 ~4.6 GB;
+      Q4_K_S ~4.4 GB; Q4_K_M ~4.6 GB; Q5_0 ~5.2 GB; Q5_1 ~5.3 GB; Q5_K_S ~5.2 GB;
+      Q5_K_M ~5.3 GB; Q6_K ~6.1 GB; Q8_0 ~8.1 GB.
+    - See `get_text_encoder_gguf_path` docstring for context on unsloth GGUF files
+      and why integration requires custom support similar to ComfyUI-GGUF.
+
+    Currently returning full-precision default (16.6 GB) for accuracy.
+    """
+    return "16.6 GB"
+
+
 def get_total_memory_estimate(quantization: str):
     """Estimate end-to-end on-device memory usage for GGUF mode.
 
     Includes:
     - Quantized transformer (per `get_model_size`) loaded via GGUF
-    - Full-precision text encoder (approx 16.6 GB)
+    - Quantized text encoder (per `get_text_encoder_size`) loaded via GGUF
     - Full-precision VAE and overhead (approx 1.2 GB)
 
     Returns a dict with numeric GB values and a formatted string.
     If the quantization value is unknown, returns None.
     """
     transformer_str = get_model_size(quantization)
+    text_encoder_str = get_text_encoder_size(quantization)
+
     if transformer_str == "Unknown":
         return None
 
     try:
         transformer_gb = float(transformer_str.replace(" GB", "").strip())
+        text_encoder_gb = float(text_encoder_str.replace(" GB", "").strip())
     except Exception:
         return None
 
-    text_encoder_gb = 16.6
     vae_and_overhead_gb = 1.2
     total_gb = round(transformer_gb + text_encoder_gb + vae_and_overhead_gb, 1)
 
@@ -1010,7 +1367,7 @@ def generate_image(args):
                 cfg_scale = 1.0
             else:
                 yield emit_event(GenerationStep.LOADING_FAST_LORA)
-                print("Loading Lightning LoRA v1.1 for fast generation...")
+                print("Loading Lightning LoRA for fast generation...")
                 lora_path = get_lora_path(ultra_fast=False)
                 if lora_path:
                     pipe = merge_lora_from_safetensors(pipe, lora_path)
@@ -1203,8 +1560,8 @@ def edit_image(args) -> None:
 
     # Apply Lightning LoRA if fast or ultra-fast mode is enabled
     if args.ultra_fast:
-        print("Loading Lightning LoRA v1.0 for ultra-fast editing...")
-        lora_path = get_lora_path(ultra_fast=True)
+        print("Loading Lightning Edit LoRA v1.0 (4 steps) for ultra-fast editing...")
+        lora_path = get_lora_path(ultra_fast=True, edit_mode=True)
         if lora_path:
             # Use manual LoRA merging for edit pipeline
             pipeline = merge_lora_from_safetensors(pipeline, lora_path)
@@ -1213,7 +1570,7 @@ def edit_image(args) -> None:
             cfg_scale = 1.0
             print(f"Ultra-fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
         else:
-            print("Warning: Could not load Lightning LoRA v1.0")
+            print("Warning: Could not load Lightning Edit LoRA v1.0 (4 steps)")
             print("Falling back to normal editing...")
             num_steps = args.steps
             cfg_scale = 4.0

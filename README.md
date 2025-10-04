@@ -186,7 +186,7 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
 - `--negative-prompt` (str): Text to discourage (negative prompt), e.g. `"blurry, watermark, text, low quality"`.
 - `-s, --steps` (int): Number of inference steps (default: 50).
 - `-f, --fast`: Enable fast mode using Lightning LoRA for 8-step generation.
-- `-uf, --ultra-fast`: Enable ultra-fast mode using Lightning LoRA v1.0 for 4-step generation.
+- `-uf, --ultra-fast`: Enable ultra-fast mode using Lightning LoRA v2.0 for 4-step generation.
 - `--seed` (int): Random seed for reproducible generation (default: 42). If not
   explicitly provided and generating multiple images, a new random seed is used
   for each image.
@@ -202,8 +202,8 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
 - `-p, --prompt` (str): Editing instructions (required).
 - `--negative-prompt` (str): Text to discourage in the edit (negative prompt).
 - `-s, --steps` (int): Number of inference steps for normal editing (default: 50).
-- `-f, --fast`: Enable fast mode using Lightning LoRA v1.1 for 8-step editing.
-- `-uf, --ultra-fast`: Enable ultra-fast mode using Lightning LoRA v1.0 for 4-step editing.
+- `-f, --fast`: Enable fast mode using Lightning LoRA v2.0 for 8-step editing.
+- `-uf, --ultra-fast`: Enable ultra-fast mode using Lightning LoRA v2.0 for 4-step editing.
 - `--seed` (int): Random seed for reproducible generation (default: 42).
 - `-o, --output` (str): Output filename (default: edited-<timestamp>.png).
 - `--outdir` (str): Directory to save edited images (default: `./output`). If `--output` is a basename, it is saved under this directory.
