@@ -139,20 +139,67 @@ def build_generate_parser(subparsers) -> argparse.ArgumentParser:
         ],
         help="Use GGUF quantized model (e.g., Q4_0 for ~3x memory reduction). Default uses standard model.",
     )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="Path or Hugging Face repo ID for the base diffusion model (default: Qwen/Qwen-Image).",
+    )
+    parser.add_argument(
+        "--gguf-model",
+        type=str,
+        default=None,
+        help="Path to custom GGUF model file. Overrides default from city96/Qwen-Image-gguf.",
+    )
+    parser.add_argument(
+        "--vae",
+        type=str,
+        default=None,
+        help="Path or Hugging Face repo ID for custom VAE model.",
+    )
+    parser.add_argument(
+        "--lightning-lora",
+        type=str,
+        default=None,
+        help="Path to custom Lightning LoRA file. Overrides default from lightx2v/Qwen-Image-Lightning.",
+    )
+    parser.add_argument(
+        "--text-encoder",
+        type=str,
+        default=None,
+        help="Path or Hugging Face repo ID for custom text encoder.",
+    )
     return parser
 
 
-def get_lora_path(ultra_fast=False, edit_mode=False):
+def get_lora_path(ultra_fast=False, edit_mode=False, custom_path=None):
     from huggingface_hub import hf_hub_download
 
     """Get the Lightning LoRA from Hugging Face Hub with a silent cache freshness check.
 
     The function will:
+    - Use custom_path if provided (local file or HF repo)
     - Look up any locally cached file for the target filename.
     - Then fetch the latest from the Hub (without forcing) which will reuse cache
       if up-to-date, or download a newer snapshot if the remote changed.
     - Return the final resolved local path.
+
+    Args:
+        ultra_fast: Use ultra-fast (4 steps) Lightning LoRA
+        edit_mode: Use edit mode Lightning LoRA
+        custom_path: Custom path to Lightning LoRA file (local or HF repo)
     """
+
+    # If custom path is provided, return it directly if it's a local file
+    if custom_path:
+        from pathlib import Path
+        custom_file = Path(custom_path).expanduser()
+        if custom_file.exists():
+            print(f"Using custom Lightning LoRA: {custom_file}")
+            return str(custom_file.absolute())
+        else:
+            print(f"Custom Lightning LoRA path not found: {custom_path}")
+            print("Falling back to default Lightning LoRA...")
 
     if edit_mode and ultra_fast:
         # Use the ultra-fast Lightning LoRA for editing
@@ -577,7 +624,108 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
         ],
         help="Use GGUF quantized model for editing (e.g., Q4_0 for ~3x memory reduction). Available quantization formats include IQ and Q variants. Default uses standard model.",
     )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="Path or Hugging Face repo ID for the base edit model (default: Qwen/Qwen-Image-Edit-2509).",
+    )
+    parser.add_argument(
+        "--gguf-model",
+        type=str,
+        default=None,
+        help="Path to custom GGUF edit model file. Overrides default from QuantStack/Qwen-Image-Edit-2509-GGUF.",
+    )
+    parser.add_argument(
+        "--vae",
+        type=str,
+        default=None,
+        help="Path or Hugging Face repo ID for custom VAE model.",
+    )
+    parser.add_argument(
+        "--lightning-lora",
+        type=str,
+        default=None,
+        help="Path to custom Lightning Edit LoRA file. Overrides default from lightx2v/Qwen-Image-Lightning.",
+    )
+    parser.add_argument(
+        "--text-encoder",
+        type=str,
+        default=None,
+        help="Path or Hugging Face repo ID for custom text encoder.",
+    )
     return parser
+
+
+def load_custom_text_encoder(text_encoder_path: str, torch_dtype):
+    """Load a custom text encoder from Hugging Face repo or local path.
+
+    Args:
+        text_encoder_path: Path or Hugging Face repo ID for text encoder
+        torch_dtype: Data type for the text encoder
+
+    Returns:
+        Loaded text encoder model
+    """
+    from transformers import AutoModel
+
+    print(f"Loading custom text encoder: {text_encoder_path}")
+    text_encoder = AutoModel.from_pretrained(
+        text_encoder_path,
+        torch_dtype=torch_dtype,
+        trust_remote_code=True
+    )
+    return text_encoder
+
+
+def load_custom_vae(vae_path: str, torch_dtype):
+    """Load a custom VAE from either a single file or Hugging Face repo.
+
+    Args:
+        vae_path: Path to VAE file or Hugging Face repo ID
+        torch_dtype: Data type for the VAE
+
+    Returns:
+        Loaded VAE model
+    """
+    from diffusers import AutoencoderKL
+    from pathlib import Path
+    import safetensors.torch
+
+    print(f"Loading custom VAE: {vae_path}")
+
+    vae_file = Path(vae_path).expanduser()
+    if vae_file.exists() and vae_file.suffix in ['.safetensors', '.ckpt', '.pt', '.pth']:
+        # Load from single file with weights only
+        print(f"Loading VAE architecture from Qwen/Qwen-Image...")
+        vae = AutoencoderKL.from_pretrained(
+            "Qwen/Qwen-Image",
+            subfolder="vae",
+            torch_dtype=torch_dtype,
+            low_cpu_mem_usage=False,
+            ignore_mismatched_sizes=True
+        )
+
+        print(f"Loading custom VAE weights from: {vae_file}")
+        if vae_file.suffix == '.safetensors':
+            state_dict = safetensors.torch.load_file(str(vae_file))
+        else:
+            import torch
+            state_dict = torch.load(str(vae_file), map_location="cpu")
+
+        # Load the weights into the VAE model
+        missing_keys, unexpected_keys = vae.load_state_dict(state_dict, strict=False)
+        if missing_keys:
+            print(f"Warning: Missing keys in VAE weights: {len(missing_keys)} keys")
+        if unexpected_keys:
+            print(f"Warning: Unexpected keys in VAE weights: {len(unexpected_keys)} keys")
+        print("Successfully loaded custom VAE weights")
+    else:
+        # Load from Hugging Face repo
+        print(f"Loading VAE from Hugging Face: {vae_path}")
+        vae = AutoencoderKL.from_pretrained(vae_path, torch_dtype=torch_dtype)
+
+    return vae
 
 
 def get_device_and_dtype():
@@ -595,16 +743,28 @@ def get_device_and_dtype():
         return "cpu", torch.float32
 
 
-def get_gguf_model_path(quantization: str):
+def get_gguf_model_path(quantization: str, custom_path: Optional[str] = None):
     """Download and return path to GGUF quantized model.
 
     Args:
         quantization: Quantization level (e.g., 'Q4_0', 'Q8_0')
+        custom_path: Optional custom path to GGUF file (local file or HF repo)
 
     Returns:
         Path to the downloaded GGUF file
     """
     from huggingface_hub import hf_hub_download
+
+    # If custom path is provided, return it directly if it's a local file
+    if custom_path:
+        from pathlib import Path
+        custom_file = Path(custom_path).expanduser()
+        if custom_file.exists():
+            print(f"Using custom GGUF model: {custom_file}")
+            return str(custom_file.absolute())
+        else:
+            print(f"Custom GGUF model path not found: {custom_path}")
+            print("Falling back to default GGUF model...")
 
     # Map quantization levels to filenames (lowercase 'qwen-image')
     gguf_files = {
@@ -694,16 +854,28 @@ def get_edit_gguf_model_path(quantization: str):
         return None
 
 
-def get_edit_gguf_model_path_QuantStack(quantization: str):
+def get_edit_gguf_model_path_QuantStack(quantization: str, custom_path: Optional[str] = None):
     """Download and return path to GGUF quantized model for image editing.
 
     Args:
         quantization: Quantization level (e.g., 'Q4_0', 'Q8_0')
+        custom_path: Optional custom path to GGUF file (local file or HF repo)
 
     Returns:
         Path to the downloaded GGUF file
     """
     from huggingface_hub import hf_hub_download
+
+    # If custom path is provided, return it directly if it's a local file
+    if custom_path:
+        from pathlib import Path
+        custom_file = Path(custom_path).expanduser()
+        if custom_file.exists():
+            print(f"Using custom GGUF edit model: {custom_file}")
+            return str(custom_file.absolute())
+        else:
+            print(f"Custom GGUF edit model path not found: {custom_path}")
+            print("Falling back to default GGUF edit model...")
 
     # Map quantization levels to filenames from QuantStack/Qwen-Image-Edit-2509-GGUF
     gguf_files = {
@@ -741,7 +913,11 @@ def get_edit_gguf_model_path_QuantStack(quantization: str):
         return None
 
 
-def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
+def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False,
+                        custom_gguf_path: Optional[str] = None,
+                        custom_model_path: Optional[str] = None,
+                        custom_vae_path: Optional[str] = None,
+                        custom_text_encoder_path: Optional[str] = None):
     """Load a GGUF quantized model pipeline.
 
     Args:
@@ -749,6 +925,10 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
         device: Device to load model on
         torch_dtype: Data type for computation
         edit_mode: Whether to load edit pipeline
+        custom_gguf_path: Optional custom path to GGUF file
+        custom_model_path: Optional custom model repo ID or path
+        custom_vae_path: Optional custom VAE repo ID or path
+        custom_text_encoder_path: Optional custom text encoder repo ID or path
 
     Returns:
         Loaded pipeline or None if failed
@@ -780,7 +960,7 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
     if edit_mode:
         # Load GGUF model for editing from calcuis/qwen-image-edit-plus-gguf
         # gguf_path = get_edit_gguf_model_path(quantization)
-        gguf_path = get_edit_gguf_model_path_QuantStack(quantization)
+        gguf_path = get_edit_gguf_model_path_QuantStack(quantization, custom_gguf_path)
         if not gguf_path:
             return None
 
@@ -827,11 +1007,24 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
             print("Creating edit pipeline with quantized transformer...")
 
             # Create edit pipeline with quantized transformer
-            pipeline = EditPipeline.from_pretrained(
-                "Qwen/Qwen-Image-Edit-2509",
-                transformer=transformer,
-                torch_dtype=torch_dtype,
-            )
+            model_id = custom_model_path if custom_model_path else "Qwen/Qwen-Image-Edit-2509"
+
+            pipeline_kwargs = {
+                "transformer": transformer,
+                "torch_dtype": torch_dtype,
+            }
+
+            # Add custom VAE if provided
+            if custom_vae_path:
+                vae = load_custom_vae(custom_vae_path, torch_dtype)
+                pipeline_kwargs["vae"] = vae
+
+            # Add custom text encoder if provided
+            if custom_text_encoder_path:
+                text_encoder = load_custom_text_encoder(custom_text_encoder_path, torch_dtype)
+                pipeline_kwargs["text_encoder"] = text_encoder
+
+            pipeline = EditPipeline.from_pretrained(model_id, **pipeline_kwargs)
 
             pipeline = pipeline.to(device)
             print(f"Successfully loaded GGUF edit model with {quantization} quantization")
@@ -842,16 +1035,25 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
             print("Falling back to standard edit model...")
 
             # Fallback: Use standard edit pipeline
-            pipeline = EditPipeline.from_pretrained(
-                "Qwen/Qwen-Image-Edit-2509",
-                torch_dtype=torch_dtype,
-            )
+            model_id = custom_model_path if custom_model_path else "Qwen/Qwen-Image-Edit-2509"
+
+            pipeline_kwargs = {"torch_dtype": torch_dtype}
+
+            if custom_vae_path:
+                vae = load_custom_vae(custom_vae_path, torch_dtype)
+                pipeline_kwargs["vae"] = vae
+
+            if custom_text_encoder_path:
+                text_encoder = load_custom_text_encoder(custom_text_encoder_path, torch_dtype)
+                pipeline_kwargs["text_encoder"] = text_encoder
+
+            pipeline = EditPipeline.from_pretrained(model_id, **pipeline_kwargs)
             pipeline = pipeline.to(device)
             print("Successfully loaded standard edit model")
             return pipeline
     else:
         # Load GGUF model for generation
-        gguf_path = get_gguf_model_path(quantization)
+        gguf_path = get_gguf_model_path(quantization, custom_gguf_path)
         if not gguf_path:
             return None
 
@@ -905,11 +1107,24 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
 
             print("Creating pipeline with quantized transformer...")
 
-            pipeline = DiffusionPipeline.from_pretrained(
-                "Qwen/Qwen-Image",
-                transformer=transformer,
-                torch_dtype=torch_dtype,
-            )
+            model_id = custom_model_path if custom_model_path else "Qwen/Qwen-Image"
+
+            pipeline_kwargs = {
+                "transformer": transformer,
+                "torch_dtype": torch_dtype,
+            }
+
+            # Add custom VAE if provided
+            if custom_vae_path:
+                vae = load_custom_vae(custom_vae_path, torch_dtype)
+                pipeline_kwargs["vae"] = vae
+
+            # Add custom text encoder if provided
+            if custom_text_encoder_path:
+                text_encoder = load_custom_text_encoder(custom_text_encoder_path, torch_dtype)
+                pipeline_kwargs["text_encoder"] = text_encoder
+
+            pipeline = DiffusionPipeline.from_pretrained(model_id, **pipeline_kwargs)
 
             pipeline = pipeline.to(device)
 
@@ -928,10 +1143,19 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
             print("Falling back to standard transformer...")
 
             # Fallback: Use standard transformer and standard text encoder
-            pipeline = DiffusionPipeline.from_pretrained(
-                "Qwen/Qwen-Image",
-                torch_dtype=torch_dtype,
-            )
+            model_id = custom_model_path if custom_model_path else "Qwen/Qwen-Image"
+
+            pipeline_kwargs = {"torch_dtype": torch_dtype}
+
+            if custom_vae_path:
+                vae = load_custom_vae(custom_vae_path, torch_dtype)
+                pipeline_kwargs["vae"] = vae
+
+            if custom_text_encoder_path:
+                text_encoder = load_custom_text_encoder(custom_text_encoder_path, torch_dtype)
+                pipeline_kwargs["text_encoder"] = text_encoder
+
+            pipeline = DiffusionPipeline.from_pretrained(model_id, **pipeline_kwargs)
             pipeline = pipeline.to(device)
             print("Successfully loaded standard model")
             return pipeline
@@ -944,10 +1168,19 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
             print("Falling back to standard transformer...")
 
             # Fallback: Use standard transformer and standard text encoder
-            pipeline = DiffusionPipeline.from_pretrained(
-                "Qwen/Qwen-Image",
-                torch_dtype=torch_dtype,
-            )
+            model_id = custom_model_path if custom_model_path else "Qwen/Qwen-Image"
+
+            pipeline_kwargs = {"torch_dtype": torch_dtype}
+
+            if custom_vae_path:
+                vae = load_custom_vae(custom_vae_path, torch_dtype)
+                pipeline_kwargs["vae"] = vae
+
+            if custom_text_encoder_path:
+                text_encoder = load_custom_text_encoder(custom_text_encoder_path, torch_dtype)
+                pipeline_kwargs["text_encoder"] = text_encoder
+
+            pipeline = DiffusionPipeline.from_pretrained(model_id, **pipeline_kwargs)
             pipeline = pipeline.to(device)
             print("Successfully loaded standard model")
             return pipeline
@@ -1275,7 +1508,13 @@ def generate_image(args):
     try:
         yield emit_event(GenerationStep.INIT)
 
-        model_name = "Qwen/Qwen-Image"
+        # Get custom paths from args if provided
+        custom_model = getattr(args, "model", None)
+        custom_gguf = getattr(args, "gguf_model", None)
+        custom_vae = getattr(args, "vae", None)
+        custom_text_encoder = getattr(args, "text_encoder", None)
+
+        model_name = custom_model if custom_model else "Qwen/Qwen-Image"
         device, torch_dtype = get_device_and_dtype()
 
         yield emit_event(GenerationStep.LOADING_MODEL)
@@ -1286,19 +1525,27 @@ def generate_image(args):
         if quantization:
             # Load GGUF quantized model
             pipe = load_gguf_pipeline(
-                quantization, device, torch_dtype, edit_mode=False
+                quantization, device, torch_dtype, edit_mode=False,
+                custom_gguf_path=custom_gguf,
+                custom_model_path=custom_model,
+                custom_vae_path=custom_vae,
+                custom_text_encoder_path=custom_text_encoder
             )
             if pipe is None:
                 print("Failed to load GGUF model, falling back to standard model...")
-                pipe = DiffusionPipeline.from_pretrained(
-                    model_name, torch_dtype=torch_dtype
-                )
+                pipeline_kwargs = {"torch_dtype": torch_dtype}
+                if custom_vae:
+                    vae = load_custom_vae(custom_vae, torch_dtype)
+                    pipeline_kwargs["vae"] = vae
+                pipe = DiffusionPipeline.from_pretrained(model_name, **pipeline_kwargs)
                 pipe = pipe.to(device)
         else:
             # Load standard model
-            pipe = DiffusionPipeline.from_pretrained(
-                model_name, torch_dtype=torch_dtype
-            )
+            pipeline_kwargs = {"torch_dtype": torch_dtype}
+            if custom_vae:
+                vae = load_custom_vae(custom_vae, torch_dtype)
+                pipeline_kwargs["vae"] = vae
+            pipe = DiffusionPipeline.from_pretrained(model_name, **pipeline_kwargs)
             pipe = pipe.to(device)
 
         # pipe.enable_attention_slicing(slice_size=1)
@@ -1330,6 +1577,9 @@ def generate_image(args):
                         "Warning: Could not load custom LoRA, continuing without it..."
                     )
 
+        # Get custom Lightning LoRA path if provided
+        custom_lightning = getattr(args, "lightning_lora", None)
+
         # Apply Lightning LoRA if fast or ultra-fast mode is enabled (skip if using GGUF)
         if args.ultra_fast:
             if using_gguf:
@@ -1342,7 +1592,7 @@ def generate_image(args):
             else:
                 yield emit_event(GenerationStep.LOADING_ULTRA_FAST_LORA)
                 print("Loading Lightning LoRA v1.0 for ultra-fast generation...")
-                lora_path = get_lora_path(ultra_fast=True)
+                lora_path = get_lora_path(ultra_fast=True, custom_path=custom_lightning)
                 if lora_path:
                     pipe = merge_lora_from_safetensors(pipe, lora_path)
                     # Use fixed 4 steps for Ultra Lightning mode
@@ -1368,7 +1618,7 @@ def generate_image(args):
             else:
                 yield emit_event(GenerationStep.LOADING_FAST_LORA)
                 print("Loading Lightning LoRA for fast generation...")
-                lora_path = get_lora_path(ultra_fast=False)
+                lora_path = get_lora_path(ultra_fast=False, custom_path=custom_lightning)
                 if lora_path:
                     pipe = merge_lora_from_safetensors(pipe, lora_path)
                     # Use fixed 8 steps for Lightning mode
@@ -1526,25 +1776,44 @@ def edit_image(args) -> None:
 
     device, torch_dtype = get_device_and_dtype()
 
+    # Get custom paths from args if provided
+    custom_model = getattr(args, "model", None)
+    custom_gguf = getattr(args, "gguf_model", None)
+    custom_vae = getattr(args, "vae", None)
+    custom_text_encoder = getattr(args, "text_encoder", None)
+    custom_lightning = getattr(args, "lightning_lora", None)
+
+    model_name = custom_model if custom_model else "Qwen/Qwen-Image-Edit-2509"
+
     # Check if quantization is requested
     quantization = getattr(args, "quantization", None)
     if quantization:
         # Load GGUF quantized model for editing
         print(f"Loading GGUF quantized model ({quantization}) for image editing...")
-        pipeline = load_gguf_pipeline(quantization, device, torch_dtype, edit_mode=True)
+        pipeline = load_gguf_pipeline(
+            quantization, device, torch_dtype, edit_mode=True,
+            custom_gguf_path=custom_gguf,
+            custom_model_path=custom_model,
+            custom_vae_path=custom_vae,
+            custom_text_encoder_path=custom_text_encoder
+        )
         if pipeline is None:
             print("GGUF models for editing may not be available yet.")
             print("Falling back to standard edit model...")
-            pipeline = EditPipeline.from_pretrained(
-                "Qwen/Qwen-Image-Edit-2509", torch_dtype=torch_dtype
-            )
+            pipeline_kwargs = {"torch_dtype": torch_dtype}
+            if custom_vae:
+                vae = load_custom_vae(custom_vae, torch_dtype)
+                pipeline_kwargs["vae"] = vae
+            pipeline = EditPipeline.from_pretrained(model_name, **pipeline_kwargs)
             pipeline = pipeline.to(device)
     else:
         # Load the standard image editing pipeline
         print("Loading Qwen-Image-Edit model for image editing...")
-        pipeline = EditPipeline.from_pretrained(
-            "Qwen/Qwen-Image-Edit-2509", torch_dtype=torch_dtype
-        )
+        pipeline_kwargs = {"torch_dtype": torch_dtype}
+        if custom_vae:
+            vae = load_custom_vae(custom_vae, torch_dtype)
+            pipeline_kwargs["vae"] = vae
+        pipeline = EditPipeline.from_pretrained(model_name, **pipeline_kwargs)
         pipeline = pipeline.to(device)
 
     pipeline.set_progress_bar_config(disable=None)
@@ -1561,7 +1830,7 @@ def edit_image(args) -> None:
     # Apply Lightning LoRA if fast or ultra-fast mode is enabled
     if args.ultra_fast:
         print("Loading Lightning Edit LoRA v1.0 (4 steps) for ultra-fast editing...")
-        lora_path = get_lora_path(ultra_fast=True, edit_mode=True)
+        lora_path = get_lora_path(ultra_fast=True, edit_mode=True, custom_path=custom_lightning)
         if lora_path:
             # Use manual LoRA merging for edit pipeline
             pipeline = merge_lora_from_safetensors(pipeline, lora_path)
@@ -1576,7 +1845,7 @@ def edit_image(args) -> None:
             cfg_scale = 4.0
     elif args.fast:
         print("Loading Lightning Edit LoRA v1.0 for fast editing...")
-        lora_path = get_lora_path(edit_mode=True)
+        lora_path = get_lora_path(edit_mode=True, custom_path=custom_lightning)
         if lora_path:
             # Use manual LoRA merging for edit pipeline
             pipeline = merge_lora_from_safetensors(pipeline, lora_path)
