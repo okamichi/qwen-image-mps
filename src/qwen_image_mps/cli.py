@@ -688,7 +688,6 @@ def load_custom_vae(vae_path: str, torch_dtype):
     Returns:
         Loaded VAE model
     """
-    from diffusers import AutoencoderKL
     from pathlib import Path
     import safetensors.torch
 
@@ -698,13 +697,29 @@ def load_custom_vae(vae_path: str, torch_dtype):
     if vae_file.exists() and vae_file.suffix in ['.safetensors', '.ckpt', '.pt', '.pth']:
         # Load from single file with weights only
         print(f"Loading VAE architecture from Qwen/Qwen-Image...")
-        vae = AutoencoderKL.from_pretrained(
-            "Qwen/Qwen-Image",
-            subfolder="vae",
-            torch_dtype=torch_dtype,
-            low_cpu_mem_usage=False,
-            ignore_mismatched_sizes=True
-        )
+
+        # Try to import the custom Qwen VAE class first, fallback to standard AutoencoderKL
+        try:
+            from diffusers.models import AutoencoderKLQwenImage
+            vae = AutoencoderKLQwenImage.from_pretrained(
+                "Qwen/Qwen-Image",
+                subfolder="vae",
+                torch_dtype=torch_dtype,
+                low_cpu_mem_usage=False,
+                ignore_mismatched_sizes=True
+            )
+            print("Using AutoencoderKLQwenImage architecture")
+        except ImportError:
+            # Fallback to standard AutoencoderKL if custom class not available
+            from diffusers import AutoencoderKL
+            vae = AutoencoderKL.from_pretrained(
+                "Qwen/Qwen-Image",
+                subfolder="vae",
+                torch_dtype=torch_dtype,
+                low_cpu_mem_usage=False,
+                ignore_mismatched_sizes=True
+            )
+            print("Using standard AutoencoderKL architecture")
 
         print(f"Loading custom VAE weights from: {vae_file}")
         if vae_file.suffix == '.safetensors':
@@ -723,7 +738,13 @@ def load_custom_vae(vae_path: str, torch_dtype):
     else:
         # Load from Hugging Face repo
         print(f"Loading VAE from Hugging Face: {vae_path}")
-        vae = AutoencoderKL.from_pretrained(vae_path, torch_dtype=torch_dtype)
+        # Try custom class first, fallback to standard
+        try:
+            from diffusers.models import AutoencoderKLQwenImage
+            vae = AutoencoderKLQwenImage.from_pretrained(vae_path, torch_dtype=torch_dtype)
+        except (ImportError, OSError):
+            from diffusers import AutoencoderKL
+            vae = AutoencoderKL.from_pretrained(vae_path, torch_dtype=torch_dtype)
 
     return vae
 
