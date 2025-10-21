@@ -16,6 +16,19 @@ Generate and edit images from text prompts using the Hugging Face Diffusers pipe
 - **Multi-image editing**: blend multiple input images in a single edit command
 - **Batman mode**: Add a LEGO Batman minifigure photobombing your images with `--batman` 🦇
 
+### This Fork Features
+
+- **Quantization model support in edit mode**
+  - Successfully minimizes memory swapping even with unified memory of 64GB or less.
+- **Added the ability to specify the location of hard-coded external data via arguments.**
+
+```example
+ % qwen-image-mps edit -i woman.png car.png --quantization Q8_0 -s 8 \
+   -p "the girl from image 1 ride on the car from image 2" \
+   --gguf-model qwen-image-edit-2509-q8.gguf \
+   --cfg-scale 4 --text-encoder Qwen2.5-VL-7B-Instruct
+```
+
 ### Examples
 
 Example generation result:
